@@ -1,0 +1,40 @@
+services:
+  replica1:
+    build:
+      context: ./replica
+    container_name: replica1
+    environment:
+      NODE_ID: replica1
+      PORT: 5001
+    ports:
+      - "5001:5001"
+    networks:
+      - raft-net
+
+  replica2:
+    build:
+      context: ./replica
+    container_name: replica2
+    environment:
+      NODE_ID: replica2
+      PORT: 5002
+    ports:
+      - "5002:5002"
+    networks:
+      - raft-net
+
+  replica3:
+    build:
+      context: ./replica
+    container_name: replica3
+    environment:
+      NODE_ID: replica3
+      PORT: 5003
+    ports:
+      - "5003:5003"
+    networks:
+      - raft-net
+
+networks:
+  raft-net:
+    driver: bridge

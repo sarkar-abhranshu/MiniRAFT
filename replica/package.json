@@ -1,0 +1,16 @@
+{
+  "name": "miniraft-replica",
+  "version": "1.0.0",
+  "description": "RAFT replica node for MiniRAFT distributed drawing board",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "replica1": "NODE_ID=replica1 PORT=5001 PEERS=http://localhost:5002,http://localhost:5003 node server.js",
+    "replica2": "NODE_ID=replica2 PORT=5002 PEERS=http://localhost:5001,http://localhost:5003 node server.js",
+    "replica3": "NODE_ID=replica3 PORT=5003 PEERS=http://localhost:5001,http://localhost:5002 node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "express": "^4.18.2"
+  }
+}
