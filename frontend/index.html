@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributed Drawing Board</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Distributed Drawing Board</h1>
+        
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <div class="tool-group">
+                <label for="colorPicker">Color:</label>
+                <input type="color" id="colorPicker" value="#000000">
+            </div>
+            
+            <div class="tool-group">
+                <label for="brushSize">Brush Size:</label>
+                <input type="range" id="brushSize" min="1" max="20" value="3">
+                <span id="brushSizeValue">3</span>
+            </div>
+            
+            <div class="tool-group">
+                <button id="clearBtn">Clear Board</button>
+            </div>
+        </div>
+        
+        <!-- Drawing Canvas -->
+        <canvas id="board" width="900" height="500"></canvas>
+        
+        <!-- Connection Status -->
+        <div id="status" class="status">Connecting...</div>
+    </div>
+    
+    <!-- Load JavaScript files in correct order -->
+    <script src="websocket.js"></script>
+    <script src="canvas.js"></script>
+    <script src="ui.js"></script>
+    <script src="sync.js"></script>
+</body>
+</html>
