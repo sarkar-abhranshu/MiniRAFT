@@ -1,185 +1,232 @@
 /**
- * Simple WebSocket Gateway Server for Distributed Drawing Board
- * Listens on ws://localhost:8080
+ * server.js
+ *
+ * Gateway Server for Distributed Drawing Board with Mini-RAFT Cluster
+ *
+ * This WebSocket gateway:
+ * - Accepts connections from browser clients
+ * - Manages real-time stroke broadcast
+ * - Discovers and tracks the current RAFT leader
+ * - Handles replica failures gracefully
+ * - Maintains stroke history for client synchronization
+ *
+ * Configuration via environment variables:
+ *   PORT          — WebSocket port (default: 8080)
+ *   REPLICAS      — comma-separated replica URLs (default: http://localhost:5001,http://localhost:5002,http://localhost:5003)
+ *   LEADER_POLL   — leader poll interval in ms (default: 1000)
  */
+
+'use strict';
 
 const WebSocket = require('ws');
+const { LeaderManager } = require('./leaderManager');
+const { ClientManager } = require('./clientManager');
+const { ReplicaClient } = require('./replicaClient');
 
-// Configuration
-const PORT = 8080;
+// ─── Configuration ───────────────────────────────────────────────────────────
 
-// Create WebSocket server
-const wss = new WebSocket.Server({ port: PORT });
+const PORT = parseInt(process.env.PORT, 10) || 8080;
 
-// Store all active connections
-const clients = new Set();
+// Default replica URLs (for Docker and local running)
+const DEFAULT_REPLICAS = [
+  'http://localhost:5001',
+  'http://localhost:5002',
+  'http://localhost:5003',
+];
 
-// Store stroke history for synchronization
+// Override with REPLICAS env var if provided (comma-separated)
+const REPLICA_URLS = process.env.REPLICAS
+  ? process.env.REPLICAS.split(',').map((url) => url.trim())
+  : DEFAULT_REPLICAS;
+
+const LEADER_POLL_INTERVAL = parseInt(process.env.LEADER_POLL, 10) || 1000;
+
+// ─── State ────────────────────────────────────────────────────────────────────
+
 const strokeHistory = [];
+const MAX_HISTORY = 1000;
 
-console.log(`WebSocket server started on ws://localhost:${PORT}`);
-console.log('Waiting for connections...\n');
+// ─── WebSocket Server ─────────────────────────────────────────────────────────
 
-/**
- * Handle new client connections
- */
-wss.on('connection', (ws, req) => {
-    const clientId = `Client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    console.log(`✓ ${clientId} connected`);
-    console.log(`  Total clients: ${wss.clients.size}`);
-    
-    // Add client to set
-    clients.add(ws);
-    ws.clientId = clientId;
-    
-    /**
-     * Handle messages from client
-     */
-    ws.on('message', (data) => {
-        try {
-            const message = JSON.parse(data.toString());
-            
-            console.log(`← ${clientId}: ${message.type}`);
-            
-            // Route message by type
-            switch (message.type) {
-                case 'stroke':
-                    handleStroke(message, ws);
-                    break;
-                    
-                case 'clear':
-                    handleClear(message, ws);
-                    break;
-                    
-                case 'sync':
-                    handleSync(message, ws);
-                    break;
-                    
-                default:
-                    console.log(`  Unknown message type: ${message.type}`);
-            }
-            
-        } catch (error) {
-            console.error(`  Error parsing message from ${clientId}:`, error.message);
-        }
-    });
-    
-    /**
-     * Handle client disconnect
-     */
-    ws.on('close', () => {
-        clients.delete(ws);
-        console.log(`✗ ${clientId} disconnected`);
-        console.log(`  Total clients: ${wss.clients.size}\n`);
-    });
-    
-    /**
-     * Handle errors
-     */
-    ws.on('error', (error) => {
-        console.error(`  Error with ${clientId}:`, error.message);
-    });
-});
+const wss = new WebSocket.Server({ port: PORT });
+const clientManager = new ClientManager();
+const leaderManager = new LeaderManager(REPLICA_URLS, LEADER_POLL_INTERVAL);
+
+// ─── Event Handlers ───────────────────────────────────────────────────────────
 
 /**
- * Handle stroke messages
- * Store and broadcast to all clients
+ * Handle new WebSocket connection
  */
-function handleStroke(stroke, sender) {
-    // Store stroke in history
-    strokeHistory.push(stroke);
-    
-    // Keep only last 1000 strokes to prevent memory issues
-    if (strokeHistory.length > 1000) {
-        strokeHistory.shift();
-    }
-    
-    // Broadcast to all connected clients
-    broadcast(stroke, sender);
-}
+wss.on('connection', (ws, _req) => {
+  const clientId = `Client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-/**
- * Handle clear board messages
- * Clear history and broadcast to all clients
- */
-function handleClear(message, sender) {
-    console.log('  Clearing board and history');
-    
-    // Clear stroke history
-    strokeHistory.length = 0;
-    
-    // Broadcast clear to all clients
-    broadcast(message, sender);
-}
+  // Register client
+  clientManager.addClient(ws, clientId);
 
-/**
- * Handle sync requests
- * Send stroke history to requesting client
- */
-function handleSync(message, client) {
-    console.log(`  Sending ${strokeHistory.length} strokes to ${client.clientId}`);
-    
-    // Send stroke history back to client
-    const syncResponse = {
-        type: 'sync',
-        strokes: strokeHistory
-    };
-    
+  // Send current stroke history to newly connected client
+  sendStrokeHistoryToClient(ws);
+
+  /**
+   * Handle incoming messages
+   */
+  ws.on('message', (data) => {
     try {
-        client.send(JSON.stringify(syncResponse));
-        console.log(`→ Sync response sent to ${client.clientId}`);
-    } catch (error) {
-        console.error(`  Error sending sync to ${client.clientId}:`, error.message);
-    }
-}
+      const message = JSON.parse(data.toString());
 
-/**
- * Broadcast message to all connected clients
- * @param {Object} message - Message to broadcast
- * @param {WebSocket} sender - Original sender (optional, to exclude echo)
- */
-function broadcast(message, sender = null) {
-    const data = JSON.stringify(message);
-    let sentCount = 0;
-    
-    wss.clients.forEach((client) => {
-        // Send to all clients (including sender for confirmation)
-        if (client.readyState === WebSocket.OPEN) {
-            try {
-                client.send(data);
-                sentCount++;
-            } catch (error) {
-                console.error(`  Error broadcasting to ${client.clientId}:`, error.message);
-            }
-        }
-    });
-    
-    console.log(`→ Broadcasted to ${sentCount} client(s)\n`);
-}
+      switch (message.type) {
+        case 'stroke':
+          handleStroke(message);
+          break;
+
+        case 'clear':
+          handleClear();
+          break;
+
+        case 'sync':
+          handleSync(ws);
+          break;
+
+        default:
+          console.log(`[Gateway] Unknown message type: ${message.type}`);
+      }
+    } catch (error) {
+      console.error(`[Gateway] Error parsing message from ${clientId}: ${error.message}`);
+    }
+  });
+
+  /**
+   * Handle client disconnect
+   */
+  ws.on('close', () => {
+    clientManager.removeClient(ws);
+  });
+
+  /**
+   * Handle client errors
+   */
+  ws.on('error', (error) => {
+    console.error(`[Gateway] WebSocket error: ${error.message}`);
+  });
+});
 
 /**
  * Handle server errors
  */
 wss.on('error', (error) => {
-    console.error('WebSocket server error:', error);
+  console.error(`[Gateway] Server error: ${error.message}`);
 });
+
+// ─── Message Handlers ─────────────────────────────────────────────────────────
+
+/**
+ * Handle incoming stroke from client
+ * Stores locally and broadcasts to all clients
+ */
+function handleStroke(stroke) {
+  // Store in history
+  strokeHistory.push(stroke);
+  if (strokeHistory.length > MAX_HISTORY) {
+    strokeHistory.shift();
+  }
+
+  // Broadcast to all clients
+  clientManager.broadcast(stroke);
+
+  console.log(`[Gateway] Stroke stored and broadcasted (history: ${strokeHistory.length})`);
+}
+
+/**
+ * Handle clear board request
+ */
+function handleClear() {
+  strokeHistory.length = 0;
+
+  const clearMessage = { type: 'clear' };
+  clientManager.broadcast(clearMessage);
+
+  console.log('[Gateway] Board cleared and broadcasted');
+}
+
+/**
+ * Handle sync request from client
+ * Send full stroke history
+ */
+function handleSync(ws) {
+  sendStrokeHistoryToClient(ws);
+}
+
+/**
+ * Send stroke history to a specific client
+ */
+function sendStrokeHistoryToClient(ws) {
+  const syncMessage = {
+    type: 'sync',
+    strokes: strokeHistory,
+  };
+
+  clientManager.sendToClient(ws, syncMessage);
+  console.log(`[Gateway] Sync response sent (${strokeHistory.length} strokes)`);
+}
+
+// ─── Leader Manager Callbacks ─────────────────────────────────────────────────
+
+/**
+ * React to leader changes
+ */
+leaderManager.onLeaderChangeCallback((newLeader, oldLeader) => {
+  const oldId = oldLeader ? new URL(oldLeader).port : 'none';
+  const newId = newLeader ? new URL(newLeader).port : 'none';
+
+  if (newLeader) {
+    console.log(
+      `[Gateway] ✓ NEW LEADER DETECTED: port ${newId} (was: ${oldId})`
+    );
+  } else {
+    console.log(`[Gateway] ✗ NO LEADER AVAILABLE (was: ${oldId})`);
+  }
+});
+
+// ─── Startup & Shutdown ───────────────────────────────────────────────────────
+
+console.log(`
+╔════════════════════════════════════════════════════════════════╗
+║  Mini-RAFT Gateway Server                                      ║
+║  WebSocket: ws://localhost:${PORT}                                      ║
+║  Replicas:  ${REPLICA_URLS.join(', ')}  ║
+╚════════════════════════════════════════════════════════════════╝
+`);
+
+// Start leader polling
+leaderManager.start();
 
 /**
  * Graceful shutdown
  */
 process.on('SIGINT', () => {
-    console.log('\nShutting down server...');
-    
-    wss.clients.forEach((client) => {
-        client.close();
-    });
-    
-    wss.close(() => {
-        console.log('Server closed');
-        process.exit(0);
-    });
+  console.log('\n[Gateway] Shutting down...');
+
+  // Stop leader polling
+  leaderManager.stop();
+
+  // Close all client connections
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.close();
+    }
+  });
+
+  // Close WebSocket server
+  wss.close(() => {
+    console.log('[Gateway] Server closed');
+    process.exit(0);
+  });
+
+  // Force exit after 5 seconds
+  setTimeout(() => {
+    console.error('[Gateway] Forced shutdown');
+    process.exit(1);
+  }, 5000);
 });
 
-console.log('Ready to accept connections!');
-console.log('Press Ctrl+C to stop the server\n');
+console.log('[Gateway] Listening for connections...');
+console.log('[Gateway] Press Ctrl+C to stop\n');

@@ -1,4 +1,21 @@
 services:
+  gateway:
+    build:
+      context: ./backend
+    container_name: gateway
+    environment:
+      PORT: 8080
+      REPLICAS: "http://replica1:5001,http://replica2:5002,http://replica3:5003"
+      LEADER_POLL: "1000"
+    ports:
+      - "8080:8080"
+    networks:
+      - raft-net
+    depends_on:
+      - replica1
+      - replica2
+      - replica3
+
   replica1:
     build:
       context: ./replica
