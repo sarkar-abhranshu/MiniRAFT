@@ -1,0 +1,16 @@
+{
+  "name": "miniraft-gateway",
+  "version": "1.0.0",
+  "description": "WebSocket gateway server for MiniRAFT distributed drawing board",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon --legacy-watch server.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

@@ -4,7 +4,7 @@
  */
 
 // WebSocket configuration
-const WS_URL = 'ws://localhost:8080';
+const WS_URL = 'ws://localhost:4000';
 const RECONNECT_DELAY = 3000; // 3 seconds
 
 // Global WebSocket instance

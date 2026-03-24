@@ -24,7 +24,13 @@ const express  = require('express');
 const { RaftNode }           = require('./raftNode');
 const { resetElectionTimer } = require('./timers');
 const { startElection }      = require('./election');
-const { handleRequestVote, handleHeartbeat } = require('./rpc');
+const {
+  handleRequestVote,
+  handleHeartbeat,
+  handleAppendEntries,
+  handleSyncLog,
+  handleClientStroke,
+} = require('./rpc');
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -88,8 +94,18 @@ app.use(express.json());
 // RequestVote — a CANDIDATE asks us to vote for it.
 app.post('/request-vote', handleRequestVote(node, onElectionTimeout));
 
+// AppendEntries — the LEADER replicates log entries.
+app.post('/append-entries', handleAppendEntries(node, onElectionTimeout));
+
 // Heartbeat — the LEADER notifies us it is still alive.
 app.post('/heartbeat', handleHeartbeat(node, onElectionTimeout));
+
+// SyncLog — returns committed entries (useful for recovery/debug).
+app.get('/sync-log', handleSyncLog(node));
+app.post('/sync-log', handleSyncLog(node));
+
+// Gateway write endpoint — ONLY leader accepts.
+app.post('/client-stroke', handleClientStroke(node, onElectionTimeout));
 
 // ── Debug / health endpoint ───────────────────────────────────────────────────
 // Useful for verifying state from the outside:
@@ -100,6 +116,9 @@ app.get('/status', (_req, res) => {
     state:       node.state,
     currentTerm: node.currentTerm,
     votedFor:    node.votedFor,
+    leaderId:    node.leaderId,
+    logLen:      node.log.length,
+    commitIndex: node.commitIndex,
     peers:       node.peerNodes,
   });
 });

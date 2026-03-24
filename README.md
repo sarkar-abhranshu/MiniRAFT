@@ -5,10 +5,10 @@ A collaborative drawing application backed by a simplified RAFT consensus protoc
 ## Architecture
 
 ```
-Browser Canvas  (ws://localhost:8080)
+Browser Canvas  (ws://localhost:4000)
       ↕  WebSocket
 ┌─────────────────────────────────────────────┐
-│     Gateway Server (backend/)               │
+│     Gateway Server (gateway/)               │
 │  • Detects current RAFT leader              │
 │  • Broadcasts strokes via WebSocket         │
 │  • Maintains client connections             │
@@ -35,11 +35,10 @@ Browser Canvas  (ws://localhost:8080)
 │   ├── websocket.js        # WebSocket connection
 │   ├── ui.js               # Toolbar controls
 │   └── sync.js             # State synchronization
-├── backend/
-│   ├── server.js           # Main gateway orchestrator
+├── gateway/
+│   ├── server.js           # WebSocket gateway (forward-to-leader)
 │   ├── leaderManager.js    # Detects current RAFT leader
 │   ├── clientManager.js    # Manages WebSocket clients
-│   ├── replicaClient.js    # HTTP client for replicas
 │   ├── Dockerfile
 │   └── package.json
 ├── replica/                # RAFT replica node
@@ -110,7 +109,7 @@ docker-compose up --build
 ```
 
 This starts:
-- **Gateway** on port `8080` (WebSocket)
+- **Gateway** on port `4000` (WebSocket)
 - **Replica 1** on port `5001` (HTTP)
 - **Replica 2** on port `5002` (HTTP)
 - **Replica 3** on port `5003` (HTTP)
@@ -158,7 +157,7 @@ NODE_ID=replica3 PORT=5003 PEERS=http://localhost:5001,http://localhost:5002 nod
 **Terminal 2: Start the gateway**
 
 ```bash
-cd backend && npm install && npm start
+cd gateway && npm install && npm start
 # Gateway will start polling replicas at http://localhost:5001-5003
 ```
 
@@ -187,7 +186,7 @@ The gateway is a modular system that separates concerns:
 Initializes and coordinates all subsystems:
 
 ```javascript
-const wss = new WebSocket.Server({ port: 8080 });
+const wss = new WebSocket.Server({ port: 4000 });
 const clientManager = new ClientManager();
 const leaderManager = new LeaderManager(replicaUrls);
 
@@ -361,23 +360,23 @@ Response:
 
 ## Environment Variables
 
-**Gateway (backend/server.js):**
+**Gateway (gateway/server.js):**
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PORT` | `8080` | WebSocket listen port |
+| `PORT` | `4000` | WebSocket listen port |
 | `REPLICAS` | `http://localhost:5001,...` | Comma-separated replica URLs |
 | `LEADER_POLL` | `1000` | Leader detection poll interval (ms) |
 
 **Example:**
 ```bash
-PORT=8080 LEADER_POLL=500 node backend/server.js
+PORT=4000 LEADER_POLL=500 node gateway/server.js
 ```
 
 **In Docker:**
 ```yaml
 environment:
-  PORT: 8080
+  PORT: 4000
   REPLICAS: "http://replica1:5001,http://replica2:5002,http://replica3:5003"
   LEADER_POLL: "1000"
 ```

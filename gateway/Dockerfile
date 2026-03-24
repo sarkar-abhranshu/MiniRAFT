@@ -6,8 +6,6 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# Copy source files
 COPY . .
 
-# NODE_ID, PORT, and PEERS are injected at runtime via docker-compose environment
 CMD ["npm", "run", "dev"]

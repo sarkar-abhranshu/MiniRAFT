@@ -20,8 +20,39 @@
 
 'use strict';
 
+const axios = require('axios');
 const { resetElectionTimer, clearHeartbeatTimer } = require('./timers');
 const { STATES } = require('./raftNode');
+
+const RPC_TIMEOUT = 350;
+
+function majorityCount(node) {
+  const total = node.peerNodes.length + 1;
+  return Math.floor(total / 2) + 1;
+}
+
+function applyLeaderContact(node, term, leaderId, onElectionTimeout) {
+  // ── Reject stale leaders ───────────────────────────────────────────────
+  if (term < node.currentTerm) {
+    return { accepted: false, response: { term: node.currentTerm, success: false } };
+  }
+
+  // ── Step down if stale leader/candidate ────────────────────────────────
+  if (node.state === STATES.LEADER || node.state === STATES.CANDIDATE) {
+    clearHeartbeatTimer(node);
+  }
+
+  if (term > node.currentTerm || node.state !== STATES.FOLLOWER) {
+    node.becomeFollower(term);
+  } else {
+    node.currentTerm = term;
+  }
+
+  node.leaderId = leaderId || node.leaderId;
+  resetElectionTimer(node, onElectionTimeout);
+
+  return { accepted: true };
+}
 
 /**
  * Returns an Express route handler for POST /request-vote.
@@ -88,47 +119,146 @@ function handleRequestVote(node, onElectionTimeout) {
  */
 function handleHeartbeat(node, onElectionTimeout) {
   return (req, res) => {
-    const { term, leaderId } = req.body;
+    const { term, leaderId, leaderCommit } = req.body;
 
-    // ── Reject stale leaders ───────────────────────────────────────────────
-    // A lower term means this heartbeat is from a deposed leader; ignore it.
-    if (term < node.currentTerm) {
-      console.log(
-        `${node.nodeId} rejected stale heartbeat from ${leaderId} ` +
-          `(term ${term} < ${node.currentTerm})`
-      );
-      return res.json({ term: node.currentTerm, success: false });
+    const applied = applyLeaderContact(node, term, leaderId, onElectionTimeout);
+    if (!applied.accepted) return res.json(applied.response);
+
+    if (typeof leaderCommit === 'number') {
+      node.commitIndex = Math.min(leaderCommit, node.log.length - 1);
     }
-
-    // ── Step down if we are a stale leader or candidate ───────────────────
-    // A valid heartbeat (term >= our term) from another node means there is
-    // already an elected leader; we must yield.
-    if (node.state === STATES.LEADER || node.state === STATES.CANDIDATE) {
-      // Stop sending our own heartbeats before stepping down.
-      clearHeartbeatTimer(node);
-      console.log(
-        `${node.nodeId} stepping down from ${node.state} due to heartbeat from ${leaderId}`
-      );
-    }
-
-    // Update term and revert to FOLLOWER. Only log/reset votedFor when the
-    // term actually changes — avoids noisy repeated "became FOLLOWER" lines on
-    // every steady-state heartbeat while already a follower at the same term.
-    if (term > node.currentTerm || node.state !== STATES.FOLLOWER) {
-      node.becomeFollower(term);
-    } else {
-      // Same term, already follower: just sync term silently.
-      node.currentTerm = term;
-    }
-
-    // ── Reset election timer ───────────────────────────────────────────────
-    // This is the key mechanism that prevents spurious elections: every valid
-    // heartbeat resets the countdown, so followers only call an election when
-    // the leader is truly unreachable.
-    resetElectionTimer(node, onElectionTimeout);
 
     return res.json({ term: node.currentTerm, success: true });
   };
 }
 
-module.exports = { handleRequestVote, handleHeartbeat };
+/**
+ * POST /append-entries
+ * Simplified log replication: appends entries and advances commit index.
+ */
+function handleAppendEntries(node, onElectionTimeout) {
+  return (req, res) => {
+    const { term, leaderId, entries, leaderCommit } = req.body;
+
+    const applied = applyLeaderContact(node, term, leaderId, onElectionTimeout);
+    if (!applied.accepted) return res.json(applied.response);
+
+    if (Array.isArray(entries) && entries.length > 0) {
+      for (const entry of entries) {
+        node.log.push(entry);
+      }
+    }
+
+    if (typeof leaderCommit === 'number') {
+      node.commitIndex = Math.min(leaderCommit, node.log.length - 1);
+    }
+
+    return res.json({
+      term: node.currentTerm,
+      success: true,
+      lastIndex: node.log.length - 1,
+      commitIndex: node.commitIndex,
+    });
+  };
+}
+
+/**
+ * GET/POST /sync-log
+ * Returns committed log entries only.
+ */
+function handleSyncLog(node) {
+  return (_req, res) => {
+    const committed = node.commitIndex >= 0 ? node.log.slice(0, node.commitIndex + 1) : [];
+    res.json({
+      term: node.currentTerm,
+      nodeId: node.nodeId,
+      leaderId: node.leaderId,
+      commitIndex: node.commitIndex,
+      committed,
+    });
+  };
+}
+
+/**
+ * POST /client-stroke
+ * Gateway submits a drawing command to the current leader.
+ * The leader replicates the entry and returns the committed command.
+ */
+function handleClientStroke(node, onElectionTimeout) {
+  return async (req, res) => {
+    if (node.state !== STATES.LEADER) {
+      return res.status(409).json({
+        error: 'NOT_LEADER',
+        term: node.currentTerm,
+        leaderId: node.leaderId,
+      });
+    }
+
+    const command = req.body && req.body.command;
+    if (!command || typeof command !== 'object') {
+      return res.status(400).json({ error: 'BAD_COMMAND' });
+    }
+
+    const entry = { term: node.currentTerm, command };
+    const entryIndex = node.log.length;
+    node.log.push(entry);
+
+    const majority = majorityCount(node);
+    let successCount = 1; // self
+    let higherTerm = null;
+
+    const payload = {
+      term: node.currentTerm,
+      leaderId: node.nodeId,
+      entries: [entry],
+      leaderCommit: node.commitIndex,
+    };
+
+    const requests = node.peerNodes.map(async (peerUrl) => {
+      try {
+        const { data } = await axios.post(`${peerUrl}/append-entries`, payload, {
+          timeout: RPC_TIMEOUT,
+        });
+
+        if (data && typeof data.term === 'number' && data.term > node.currentTerm) {
+          higherTerm = data.term;
+          return;
+        }
+
+        if (data && data.success) {
+          successCount += 1;
+        }
+      } catch {
+        // peer down/unreachable
+      }
+    });
+
+    await Promise.allSettled(requests);
+
+    if (higherTerm !== null) {
+      clearHeartbeatTimer(node);
+      node.becomeFollower(higherTerm);
+      resetElectionTimer(node, onElectionTimeout);
+      return res.status(409).json({ error: 'STEPPED_DOWN', term: node.currentTerm });
+    }
+
+    if (successCount >= majority) {
+      node.commitIndex = entryIndex;
+      return res.json({
+        committed: true,
+        index: entryIndex,
+        committedMessage: command,
+      });
+    }
+
+    return res.status(503).json({ committed: false, reason: 'NO_MAJORITY' });
+  };
+}
+
+module.exports = {
+  handleRequestVote,
+  handleHeartbeat,
+  handleAppendEntries,
+  handleSyncLog,
+  handleClientStroke,
+};
