@@ -86,7 +86,7 @@ async function sendHeartbeats(node, onStepDown) {
     try {
       const { data } = await axios.post(
         `${peerUrl}/heartbeat`,
-        { term: node.currentTerm, leaderId: node.nodeId, leaderCommit: node.commitIndex },
+        { term: node.currentTerm, leaderId: node.nodeId },
         { timeout: RPC_TIMEOUT }
       );
 

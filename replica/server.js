@@ -24,13 +24,9 @@ const express  = require('express');
 const { RaftNode }           = require('./raftNode');
 const { resetElectionTimer } = require('./timers');
 const { startElection }      = require('./election');
-const {
-  handleRequestVote,
-  handleHeartbeat,
-  handleAppendEntries,
-  handleSyncLog,
-  handleClientStroke,
-} = require('./rpc');
+const { handleRequestVote, handleHeartbeat } = require('./rpc');
+const { RaftLog } = require('./log');
+const { ReplicationService } = require('./replication');
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -64,6 +60,8 @@ const PEER_URLS = resolvePeers();
 // ─── RAFT node ────────────────────────────────────────────────────────────────
 
 const node = new RaftNode(NODE_ID, PEER_URLS);
+const raftLog = new RaftLog();
+const replicationService = new ReplicationService(node, raftLog);
 
 // ─── Election timeout callback ────────────────────────────────────────────────
 //
@@ -94,18 +92,80 @@ app.use(express.json());
 // RequestVote — a CANDIDATE asks us to vote for it.
 app.post('/request-vote', handleRequestVote(node, onElectionTimeout));
 
-// AppendEntries — the LEADER replicates log entries.
-app.post('/append-entries', handleAppendEntries(node, onElectionTimeout));
-
 // Heartbeat — the LEADER notifies us it is still alive.
 app.post('/heartbeat', handleHeartbeat(node, onElectionTimeout));
 
-// SyncLog — returns committed entries (useful for recovery/debug).
-app.get('/sync-log', handleSyncLog(node));
-app.post('/sync-log', handleSyncLog(node));
+// Leader route: accepts client commands and starts replication.
+app.post('/client/append', async (req, res) => {
+  if (!node.isLeader()) {
+    return res.status(403).json({
+      success: false,
+      error: 'NOT_LEADER',
+      nodeId: node.nodeId,
+      state: node.state,
+    });
+  }
 
-// Gateway write endpoint — ONLY leader accepts.
-app.post('/client-stroke', handleClientStroke(node, onElectionTimeout));
+  const command = req.body && req.body.command ? req.body.command : req.body;
+  if (!command || typeof command !== 'object') {
+    return res.status(400).json({
+      success: false,
+      error: 'INVALID_COMMAND',
+    });
+  }
+
+  try {
+    const replicationResult = await replicationService.replicateCommand(command);
+
+    if (!replicationResult.success) {
+      return res.status(503).json(replicationResult);
+    }
+
+    return res.json(replicationResult);
+  } catch (error) {
+    console.error(`Replication error on ${NODE_ID}: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      error: 'REPLICATION_ERROR',
+      message: error.message,
+    });
+  }
+});
+
+// Follower route: receives AppendEntries and stores entries.
+app.post('/append', (req, res) => {
+  const result = replicationService.applyAppendFromLeader(req.body || {});
+
+  if (result.success) {
+    // AppendEntries also acts as a liveness signal from the leader.
+    resetElectionTimer(node, onElectionTimeout);
+  }
+
+  return res.json(result);
+});
+
+// Manual helper: allow forcing a full-log sync from the current leader.
+app.post('/sync-followers', async (_req, res) => {
+  if (!node.isLeader()) {
+    return res.status(403).json({
+      success: false,
+      error: 'NOT_LEADER',
+      nodeId: node.nodeId,
+      state: node.state,
+    });
+  }
+
+  const syncResult = await replicationService.syncFollowers();
+  return res.json(syncResult);
+});
+
+app.get('/log', (_req, res) => {
+  res.json({
+    nodeId: node.nodeId,
+    commitIndex: raftLog.commitIndex,
+    entries: raftLog.getAllEntries(),
+  });
+});
 
 // ── Debug / health endpoint ───────────────────────────────────────────────────
 // Useful for verifying state from the outside:
@@ -116,10 +176,10 @@ app.get('/status', (_req, res) => {
     state:       node.state,
     currentTerm: node.currentTerm,
     votedFor:    node.votedFor,
-    leaderId:    node.leaderId,
-    logLen:      node.log.length,
-    commitIndex: node.commitIndex,
     peers:       node.peerNodes,
+    commitIndex: raftLog.commitIndex,
+    lastLogIndex: raftLog.getLastIndex(),
+    lastLogTerm: raftLog.getLastTerm(),
   });
 });
 

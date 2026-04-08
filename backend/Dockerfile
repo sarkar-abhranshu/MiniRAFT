@@ -11,5 +11,5 @@ RUN npm install --omit=dev
 # Copy source files
 COPY . .
 
-# NODE_ID and PORT are injected at runtime via docker-compose environment
+# PORT, REPLICAS, and LEADER_POLL are injected at runtime via docker-compose environment
 CMD ["node", "server.js"]

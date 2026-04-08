@@ -33,14 +33,6 @@ class RaftNode {
     // --- Volatile state ---
     this.state = STATES.FOLLOWER;
 
-    // --- Log replication state (simplified, in-memory) ---
-    // Each entry is: { term: number, command: object }
-    this.log = [];
-    this.commitIndex = -1;
-
-    // Leader tracking hint for clients (gateway)
-    this.leaderId = null;
-
     // Timer handles managed externally by timers.js
     this.electionTimer  = null;
     this.heartbeatTimer = null;
@@ -61,7 +53,6 @@ class RaftNode {
     this.currentTerm = term;
     this.votedFor    = null; // reset vote so we may vote in this term
     this.state       = STATES.FOLLOWER;
-    // leaderId will be set when we receive a heartbeat/appendEntries
     console.log(`Node ${this.nodeId} became FOLLOWER for term ${term} (was ${prev})`);
   }
 
