@@ -1,18 +1,17 @@
 services:
   gateway:
     build:
-      context: ./gateway
+      context: .
+      dockerfile: ./gateway/Dockerfile
     environment:
       PORT: 4000
+      FRONTEND_DIR: /app/frontend
       REPLICAS: "http://replica1:5001,http://replica2:5002,http://replica3:5003"
       LEADER_POLL: "1000"
     ports:
       - "4000:4000"
     networks:
       - raft-net
-    volumes:
-      - ./gateway:/app
-      - /app/node_modules
     depends_on:
       - replica1
       - replica2

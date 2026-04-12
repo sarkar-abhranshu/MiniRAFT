@@ -9,6 +9,9 @@
 
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
 const WebSocket = require('ws');
 const { LeaderManager } = require('./leaderManager');
 const { ClientManager } = require('./clientManager');
@@ -30,7 +33,48 @@ const LEADER_POLL_INTERVAL = parseInt(process.env.LEADER_POLL, 10) || 1000;
 const strokeHistory = [];
 const MAX_HISTORY = 1000;
 
-const wss = new WebSocket.Server({ port: PORT });
+const FRONTEND_DIR = process.env.FRONTEND_DIR
+  ? path.resolve(process.env.FRONTEND_DIR)
+  : path.resolve(__dirname, '../frontend');
+
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+};
+
+const httpServer = http.createServer((req, res) => {
+  const requestPath = req.url === '/' ? '/index.html' : (req.url || '/index.html').split('?')[0];
+  const safePath = path.normalize(requestPath).replace(/^\/+/, '');
+  const filePath = path.resolve(FRONTEND_DIR, safePath);
+
+  if (!filePath.startsWith(FRONTEND_DIR)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Forbidden');
+    return;
+  }
+
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Not found');
+      return;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    res.writeHead(200, { 'Content-Type': contentType });
+    res.end(data);
+  });
+});
+
+const wss = new WebSocket.Server({ server: httpServer });
 const clientManager = new ClientManager();
 const leaderManager = new LeaderManager(REPLICA_URLS, LEADER_POLL_INTERVAL);
 
@@ -89,14 +133,20 @@ async function forwardToLeader(commandMessage) {
 
     let resp;
     try {
-      resp = await postJson(`${leader}/client-stroke`, { command: commandMessage });
+      resp = await postJson(`${leader}/client/append`, { command: commandMessage });
     } catch {
       await leaderManager.poll();
       continue;
     }
 
-    if (resp.ok && resp.data && resp.data.committedMessage) {
-      return resp.data.committedMessage;
+    if (resp.ok && resp.data) {
+      if (resp.data.committedMessage) {
+        return resp.data.committedMessage;
+      }
+
+      if (resp.data.success && resp.data.entry && resp.data.entry.command) {
+        return resp.data.entry.command;
+      }
     }
 
     // Leader changed or couldn't commit; refresh leader and retry once.
@@ -158,7 +208,11 @@ leaderManager.onLeaderChangeCallback((newLeader, oldLeader) => {
 
 leaderManager.start();
 
-console.log(`[Gateway] WebSocket listening on :${PORT}`);
+httpServer.listen(PORT, () => {
+  console.log(`[Gateway] HTTP + WebSocket listening on :${PORT}`);
+});
+
+console.log(`[Gateway] Frontend directory: ${FRONTEND_DIR}`);
 console.log(`[Gateway] Replicas: ${REPLICA_URLS.join(', ')}`);
 
 process.on('SIGINT', () => {
@@ -169,6 +223,8 @@ process.on('SIGINT', () => {
     if (client.readyState === WebSocket.OPEN) client.close();
   });
 
-  wss.close(() => process.exit(0));
+  wss.close(() => {
+    httpServer.close(() => process.exit(0));
+  });
   setTimeout(() => process.exit(1), 3000);
 });

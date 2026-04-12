@@ -35,6 +35,32 @@ const {
 // Must be well below ELECTION_TIMEOUT_MIN so that an unresponsive peer does
 // not block the election for longer than the election window.
 const RPC_TIMEOUT = 300;
+const HEARTBEAT_LOG_INTERVAL_MS = 5000;
+const HEARTBEAT_FAILURE_LOG_COOLDOWN_MS = 3000;
+
+const lastHeartbeatLogAt = new Map();
+const lastHeartbeatFailureLogAt = new Map();
+
+function shouldLogHeartbeat(nodeId) {
+  const now = Date.now();
+  const last = lastHeartbeatLogAt.get(nodeId) || 0;
+  if (now - last >= HEARTBEAT_LOG_INTERVAL_MS) {
+    lastHeartbeatLogAt.set(nodeId, now);
+    return true;
+  }
+  return false;
+}
+
+function shouldLogHeartbeatFailure(nodeId, peerUrl) {
+  const key = `${nodeId}->${peerUrl}`;
+  const now = Date.now();
+  const last = lastHeartbeatFailureLogAt.get(key) || 0;
+  if (now - last >= HEARTBEAT_FAILURE_LOG_COOLDOWN_MS) {
+    lastHeartbeatFailureLogAt.set(key, now);
+    return true;
+  }
+  return false;
+}
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
@@ -76,7 +102,9 @@ async function sendHeartbeats(node, onStepDown) {
   // Safety: only a LEADER should be sending heartbeats.
   if (node.state !== STATES.LEADER) return;
 
-  console.log(`Leader ${node.nodeId} sending heartbeat (term ${node.currentTerm})`);
+  if (shouldLogHeartbeat(node.nodeId)) {
+    console.log(`Leader ${node.nodeId} heartbeat loop active (term ${node.currentTerm})`);
+  }
 
   // Guard against calling onStepDown more than once when multiple peers
   // simultaneously return a higher term.
@@ -102,7 +130,9 @@ async function sendHeartbeats(node, onStepDown) {
       // Unreachable peer — silently continue.  The peer's election timer will
       // eventually fire and it will start a new election with an updated term,
       // which will cause this leader to step down at that point.
-      console.log(`  Heartbeat to ${peerUrl} failed: ${err.message}`);
+      if (shouldLogHeartbeatFailure(node.nodeId, peerUrl)) {
+        console.log(`  Heartbeat to ${peerUrl} failed: ${err.message}`);
+      }
     }
   });
 

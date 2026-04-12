@@ -5,7 +5,7 @@ A collaborative drawing application backed by a simplified RAFT consensus protoc
 ## Architecture
 
 ```
-Browser Canvas  (ws://localhost:4000)
+Browser UI      (http://localhost:4000)
       ↕  WebSocket
 ┌─────────────────────────────────────────────┐
 │     Gateway Server (gateway/)               │
@@ -109,7 +109,7 @@ docker-compose up --build
 ```
 
 This starts:
-- **Gateway** on port `4000` (WebSocket)
+- **Gateway** on port `4000` (HTTP + WebSocket)
 - **Replica 1** on port `5001` (HTTP)
 - **Replica 2** on port `5002` (HTTP)
 - **Replica 3** on port `5003` (HTTP)
@@ -117,8 +117,11 @@ This starts:
 Once you see leader election logs, open the frontend:
 
 ```bash
-open frontend/index.html   # macOS
-start frontend/index.html  # Windows
+# local machine
+open http://localhost:4000   # macOS
+
+# from another computer on your network
+# http://<HOST_IP>:4000
 ```
 
 Open multiple tabs and draw simultaneously.
@@ -164,7 +167,7 @@ cd gateway && npm install && npm start
 **Terminal 3: Open the frontend**
 
 ```bash
-open frontend/index.html
+open http://localhost:4000
 ```
 
 **Check replica status:**
@@ -364,7 +367,8 @@ Response:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PORT` | `4000` | WebSocket listen port |
+| `PORT` | `4000` | HTTP + WebSocket listen port |
+| `FRONTEND_DIR` | `../frontend` (relative to `gateway/`) | Static frontend directory for HTTP UI |
 | `REPLICAS` | `http://localhost:5001,...` | Comma-separated replica URLs |
 | `LEADER_POLL` | `1000` | Leader detection poll interval (ms) |
 
@@ -377,9 +381,13 @@ PORT=4000 LEADER_POLL=500 node gateway/server.js
 ```yaml
 environment:
   PORT: 4000
+  FRONTEND_DIR: /app/frontend
   REPLICAS: "http://replica1:5001,http://replica2:5002,http://replica3:5003"
   LEADER_POLL: "1000"
 ```
+
+**Replica logging:**
+- `VERBOSE_REPLICATION_LOGS` (default: `false`) — when `true`, prints per-entry replication ACK details.
 
 ---
 
@@ -438,4 +446,3 @@ MIT
 ## Author
 
 Created as a distributed systems project demonstrating real-time synchronization with WebSockets and the RAFT consensus algorithm.
-

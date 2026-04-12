@@ -4,7 +4,8 @@
  */
 
 // WebSocket configuration
-const WS_URL = 'ws://localhost:8080';
+const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_URL = `${WS_PROTOCOL}//${window.location.host}`;
 const RECONNECT_DELAY = 3000; // 3 seconds
 
 // Global WebSocket instance
@@ -54,11 +55,10 @@ function handleOpen(event) {
         reconnectTimer = null;
     }
     
-    // Request board state synchronization
-    // COMMENTED OUT FOR TESTING
-    // if (typeof requestSync === 'function') {
-    //     requestSync();
-    // }
+    // Request board state synchronization on every (re)connect.
+    if (typeof requestSync === 'function') {
+        requestSync();
+    }
 }
 
 /**
@@ -88,20 +88,19 @@ function handleMessage(event) {
                 }
                 break;
                 
-            // COMMENTED OUT FOR TESTING
-            // case 'sync':
-            //     // Forward sync data to sync.js
-            //     if (typeof handleSyncResponse === 'function') {
-            //         handleSyncResponse(message);
-            //     }
-            //     break;
+            case 'sync':
+                // Forward sync data to sync.js
+                if (typeof handleSyncResponse === 'function') {
+                    handleSyncResponse(message);
+                }
+                break;
                 
-            // case 'history':
-            //     // Handle stroke history for synchronization
-            //     if (typeof handleHistory === 'function') {
-            //         handleHistory(message);
-            //     }
-            //     break;
+            case 'history':
+                // Backward-compatible alias for older payload naming.
+                if (typeof handleHistory === 'function') {
+                    handleHistory(message);
+                }
+                break;
                 
             default:
                 console.warn('Unknown message type:', message.type);
@@ -119,6 +118,10 @@ function handleClose(event) {
     console.log('WebSocket connection closed');
     isConnected = false;
     updateStatus('disconnected');
+
+    if (typeof handleConnectionReset === 'function') {
+        handleConnectionReset();
+    }
     
     // Attempt to reconnect
     scheduleReconnect();

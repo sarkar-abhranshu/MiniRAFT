@@ -3,6 +3,13 @@
 const axios = require('axios');
 
 const REPLICATION_TIMEOUT = parseInt(process.env.REPLICATION_TIMEOUT, 10) || 1000;
+const VERBOSE_REPLICATION_LOGS = process.env.VERBOSE_REPLICATION_LOGS === 'true';
+
+function logVerbose(message) {
+  if (VERBOSE_REPLICATION_LOGS) {
+    console.log(message);
+  }
+}
 
 class ReplicationService {
   constructor(node, raftLog) {
@@ -23,13 +30,13 @@ class ReplicationService {
       command,
     });
 
-    console.log(
+    logVerbose(
       `[Replication] Leader ${this.node.nodeId} appended entry index=${entry.index}, term=${entry.term}`
     );
 
     const appendPayload = this._buildAppendPayload(entry);
 
-    console.log(
+    logVerbose(
       `[Replication] Replicating entry index=${entry.index} to ${this.node.peerNodes.length} followers`
     );
 
@@ -41,11 +48,11 @@ class ReplicationService {
     const totalNodes = this.node.peerNodes.length + 1;
     const successCount = followerAckCount + 1; // include leader
 
-    console.log(`[Replication] ACK count ${successCount}/${totalNodes}`);
+    logVerbose(`[Replication] ACK count ${successCount}/${totalNodes}`);
 
     if (successCount > totalNodes / 2) {
       const commitIndex = this.raftLog.commit(entry.index);
-      console.log(`[Replication] Commit successful at index ${commitIndex}`);
+      logVerbose(`[Replication] Commit successful at index ${commitIndex}`);
 
       // Push updated leaderCommit so followers advance their commit index too.
       const commitPayload = this._buildAppendPayload(null);
@@ -162,7 +169,7 @@ class ReplicationService {
 
       const success = Boolean(data && data.success);
       if (success) {
-        console.log(`[Replication] ACK from ${peerUrl}`);
+        logVerbose(`[Replication] ACK from ${peerUrl}`);
       } else {
         console.log(`[Replication] NACK from ${peerUrl}`);
       }
