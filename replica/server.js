@@ -33,26 +33,19 @@ const { ReplicationService } = require('./replication');
 const NODE_ID = process.env.NODE_ID || 'replica1';
 const PORT    = parseInt(process.env.PORT, 10) || 5001;
 
-/**
- * Default cluster topology.
- * When running in Docker, container hostnames resolve automatically.
- * When running locally, override with the PEERS env variable.
- */
-const DEFAULT_CLUSTER = [
-  { id: 'replica1', url: 'http://replica1:5001' },
-  { id: 'replica2', url: 'http://replica2:5002' },
-  { id: 'replica3', url: 'http://replica3:5003' },
-];
-
 function resolvePeers() {
   if (process.env.PEERS) {
-    // Explicit peer list from environment (used for local / non-Docker runs).
     return process.env.PEERS.split(',').map((u) => u.trim()).filter(Boolean);
   }
-  // Filter self out of the default cluster list.
-  return DEFAULT_CLUSTER
-    .filter((n) => n.id !== NODE_ID)
-    .map((n) => n.url);
+  // Fallback: derive peers from a CLUSTER env var listing all node URLs
+  if (process.env.CLUSTER) {
+    const self = process.env.NODE_ID || NODE_ID;
+    return process.env.CLUSTER.split(',')
+      .map((u) => u.trim())
+      .filter((u) => !u.includes(`/${self}`) && !u.includes(`:${PORT}`));
+  }
+  console.warn(`[${NODE_ID}] WARNING: No PEERS or CLUSTER env var set. Node will run isolated.`);
+  return [];
 }
 
 const PEER_URLS = resolvePeers();
@@ -142,6 +135,43 @@ app.post('/append', (req, res) => {
   }
 
   return res.json(result);
+});
+
+app.post('/append-entries', (req, res) => {
+  const result = replicationService.applyAppendFromLeader(req.body || {});
+  if (result.success) {
+    resetElectionTimer(node, onElectionTimeout);
+  }
+  return res.json(result);
+});
+
+// GET /sync-log?from=N — returns all committed log entries from index N onward
+app.get('/sync-log', (req, res) => {
+  const fromIndex = parseInt(req.query.from, 10) || 0;
+  const entries = raftLog.getEntriesFrom(fromIndex);
+  return res.json({
+    nodeId: node.nodeId,
+    commitIndex: raftLog.commitIndex,
+    entries,
+  });
+});
+
+// POST /sync-log — leader pushes missing entries to a rejoining follower
+app.post('/sync-log', (req, res) => {
+  const { entries, commitIndex } = req.body || {};
+  if (Array.isArray(entries)) {
+    raftLog.replaceAll(entries);
+  }
+  if (Number.isInteger(commitIndex)) {
+    raftLog.commit(commitIndex);
+  }
+  resetElectionTimer(node, onElectionTimeout);
+  return res.json({
+    success: true,
+    nodeId: node.nodeId,
+    commitIndex: raftLog.commitIndex,
+    lastIndex: raftLog.getLastIndex(),
+  });
 });
 
 // Manual helper: allow forcing a full-log sync from the current leader.

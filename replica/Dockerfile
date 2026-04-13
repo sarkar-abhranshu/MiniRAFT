@@ -12,4 +12,4 @@ RUN npm install --omit=dev
 COPY . .
 
 # NODE_ID and PORT are injected at runtime via docker-compose environment
-CMD ["node", "server.js"]
+CMD ["npm", "run", "dev"]

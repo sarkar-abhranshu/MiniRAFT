@@ -120,7 +120,10 @@ async function postJson(url, body, timeoutMs = 800) {
 }
 
 async function forwardToLeader(commandMessage) {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const MAX_ATTEMPTS = 6;
+  const RETRY_DELAY_MS = 500;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     let leader = leaderManager.getLeader();
     if (!leader) {
       await leaderManager.poll();
@@ -128,6 +131,10 @@ async function forwardToLeader(commandMessage) {
     }
 
     if (!leader) {
+      if (attempt < MAX_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        continue;
+      }
       throw new Error('No leader available to accept writes');
     }
 
@@ -136,23 +143,26 @@ async function forwardToLeader(commandMessage) {
       resp = await postJson(`${leader}/client/append`, { command: commandMessage });
     } catch {
       await leaderManager.poll();
-      continue;
+      if (attempt < MAX_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        continue;
+      }
+      throw new Error('No leader available to accept writes');
     }
 
     if (resp.ok && resp.data) {
-      if (resp.data.committedMessage) {
-        return resp.data.committedMessage;
-      }
-
+      if (resp.data.committedMessage) return resp.data.committedMessage;
       if (resp.data.success && resp.data.entry && resp.data.entry.command) {
         return resp.data.entry.command;
       }
     }
 
-    // Leader changed or couldn't commit; refresh leader and retry once.
-    if (resp.status === 409 || resp.status === 503) {
+    if (resp.status === 409 || resp.status === 503 || resp.status === 403) {
       await leaderManager.poll();
-      continue;
+      if (attempt < MAX_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        continue;
+      }
     }
 
     throw new Error('Leader rejected request');

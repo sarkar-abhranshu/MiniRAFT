@@ -101,6 +101,14 @@ function handleMessage(event) {
                     handleHistory(message);
                 }
                 break;
+
+            case 'error':
+                console.warn('Gateway error:', message.message);
+                updateStatus('disconnected');
+                setTimeout(() => {
+                    if (isConnected) updateStatus('connected');
+                }, 2000);
+                break;
                 
             default:
                 console.warn('Unknown message type:', message.type);
@@ -183,7 +191,7 @@ function updateStatus(status) {
             statusEl.textContent = 'Connecting...';
             break;
         case 'disconnected':
-            statusEl.textContent = 'Disconnected';
+            statusEl.textContent = 'Disconnected — reconnecting...';
             break;
     }
 }

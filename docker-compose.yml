@@ -13,9 +13,12 @@ services:
     networks:
       - raft-net
     depends_on:
-      - replica1
-      - replica2
-      - replica3
+      replica1:
+        condition: service_healthy
+      replica2:
+        condition: service_healthy
+      replica3:
+        condition: service_healthy
 
   replica1:
     build:
@@ -31,6 +34,12 @@ services:
     volumes:
       - ./replica:/app
       - /app/node_modules
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5001/status"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
 
   replica2:
     build:
@@ -46,6 +55,12 @@ services:
     volumes:
       - ./replica:/app
       - /app/node_modules
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5002/status"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
 
   replica3:
     build:
@@ -61,6 +76,12 @@ services:
     volumes:
       - ./replica:/app
       - /app/node_modules
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5003/status"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
 
 networks:
   raft-net:
