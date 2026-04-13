@@ -4,6 +4,19 @@ const axios = require('axios');
 
 const REPLICATION_TIMEOUT = parseInt(process.env.REPLICATION_TIMEOUT, 10) || 1000;
 const VERBOSE_REPLICATION_LOGS = process.env.VERBOSE_REPLICATION_LOGS === 'true';
+const REPLICATION_FAILURE_LOG_COOLDOWN_MS = 5000;
+
+const lastReplicationFailureLogAt = new Map();
+
+function shouldLogReplicationFailure(peerUrl) {
+  const now = Date.now();
+  const last = lastReplicationFailureLogAt.get(peerUrl) || 0;
+  if (now - last >= REPLICATION_FAILURE_LOG_COOLDOWN_MS) {
+    lastReplicationFailureLogAt.set(peerUrl, now);
+    return true;
+  }
+  return false;
+}
 
 function logVerbose(message) {
   if (VERBOSE_REPLICATION_LOGS) {
@@ -179,7 +192,9 @@ class ReplicationService {
         success,
       };
     } catch (error) {
-      console.log(`[Replication] Append to ${peerUrl} failed: ${error.message}`);
+      if (shouldLogReplicationFailure(peerUrl)) {
+        console.log(`[Replication] Append to ${peerUrl} failed: ${error.message}`);
+      }
       return {
         peerUrl,
         success: false,

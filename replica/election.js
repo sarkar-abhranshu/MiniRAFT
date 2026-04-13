@@ -35,8 +35,8 @@ const {
 // Must be well below ELECTION_TIMEOUT_MIN so that an unresponsive peer does
 // not block the election for longer than the election window.
 const RPC_TIMEOUT = 300;
-const HEARTBEAT_LOG_INTERVAL_MS = 5000;
-const HEARTBEAT_FAILURE_LOG_COOLDOWN_MS = 3000;
+const HEARTBEAT_LOG_INTERVAL_MS = 15000;
+const HEARTBEAT_FAILURE_LOG_COOLDOWN_MS = 10000;
 
 const lastHeartbeatLogAt = new Map();
 const lastHeartbeatFailureLogAt = new Map();

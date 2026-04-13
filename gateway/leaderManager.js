@@ -41,7 +41,12 @@ class LeaderManager {
     const results = await Promise.all(statusPromises);
 
     results.forEach((status, idx) => {
-      if (status) this.replicaStates.set(this.replicaUrls[idx], status);
+      const url = this.replicaUrls[idx];
+      if (status) {
+        this.replicaStates.set(url, status);
+      } else {
+        this.replicaStates.delete(url);
+      }
     });
 
     this.currentLeader = null;
