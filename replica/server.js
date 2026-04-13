@@ -18,33 +18,37 @@
  *   NODE_ID=replica3 PORT=5003 PEERS=http://localhost:5001,http://localhost:5002 node server.js
  */
 
-'use strict';
+"use strict";
 
-const express  = require('express');
-const { RaftNode }           = require('./raftNode');
-const { resetElectionTimer } = require('./timers');
-const { startElection }      = require('./election');
-const { handleRequestVote, handleHeartbeat } = require('./rpc');
-const { RaftLog } = require('./log');
-const { ReplicationService } = require('./replication');
+const express = require("express");
+const { RaftNode } = require("./raftNode");
+const { resetElectionTimer } = require("./timers");
+const { startElection } = require("./election");
+const { handleRequestVote, handleHeartbeat } = require("./rpc");
+const { RaftLog } = require("./log");
+const { ReplicationService } = require("./replication");
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-const NODE_ID = process.env.NODE_ID || 'replica1';
-const PORT    = parseInt(process.env.PORT, 10) || 5001;
+const NODE_ID = process.env.NODE_ID || "replica1";
+const PORT = parseInt(process.env.PORT, 10) || 5001;
 
 function resolvePeers() {
   if (process.env.PEERS) {
-    return process.env.PEERS.split(',').map((u) => u.trim()).filter(Boolean);
+    return process.env.PEERS.split(",")
+      .map((u) => u.trim())
+      .filter(Boolean);
   }
   // Fallback: derive peers from a CLUSTER env var listing all node URLs
   if (process.env.CLUSTER) {
     const self = process.env.NODE_ID || NODE_ID;
-    return process.env.CLUSTER.split(',')
+    return process.env.CLUSTER.split(",")
       .map((u) => u.trim())
       .filter((u) => !u.includes(`/${self}`) && !u.includes(`:${PORT}`));
   }
-  console.warn(`[${NODE_ID}] WARNING: No PEERS or CLUSTER env var set. Node will run isolated.`);
+  console.warn(
+    `[${NODE_ID}] WARNING: No PEERS or CLUSTER env var set. Node will run isolated.`,
+  );
   return [];
 }
 
@@ -83,32 +87,33 @@ app.use(express.json());
 // ── RAFT RPC endpoints ───────────────────────────────────────────────────────
 
 // RequestVote — a CANDIDATE asks us to vote for it.
-app.post('/request-vote', handleRequestVote(node, onElectionTimeout));
+app.post("/request-vote", handleRequestVote(node, onElectionTimeout));
 
 // Heartbeat — the LEADER notifies us it is still alive.
-app.post('/heartbeat', handleHeartbeat(node, onElectionTimeout));
+app.post("/heartbeat", handleHeartbeat(node, onElectionTimeout));
 
 // Leader route: accepts client commands and starts replication.
-app.post('/client/append', async (req, res) => {
+app.post("/client/append", async (req, res) => {
   if (!node.isLeader()) {
     return res.status(403).json({
       success: false,
-      error: 'NOT_LEADER',
+      error: "NOT_LEADER",
       nodeId: node.nodeId,
       state: node.state,
     });
   }
 
   const command = req.body && req.body.command ? req.body.command : req.body;
-  if (!command || typeof command !== 'object') {
+  if (!command || typeof command !== "object") {
     return res.status(400).json({
       success: false,
-      error: 'INVALID_COMMAND',
+      error: "INVALID_COMMAND",
     });
   }
 
   try {
-    const replicationResult = await replicationService.replicateCommand(command);
+    const replicationResult =
+      await replicationService.replicateCommand(command);
 
     if (!replicationResult.success) {
       return res.status(503).json(replicationResult);
@@ -119,14 +124,14 @@ app.post('/client/append', async (req, res) => {
     console.error(`Replication error on ${NODE_ID}: ${error.message}`);
     return res.status(500).json({
       success: false,
-      error: 'REPLICATION_ERROR',
+      error: "REPLICATION_ERROR",
       message: error.message,
     });
   }
 });
 
 // Follower route: receives AppendEntries and stores entries.
-app.post('/append', (req, res) => {
+app.post("/append", (req, res) => {
   const result = replicationService.applyAppendFromLeader(req.body || {});
 
   if (result.success) {
@@ -137,7 +142,7 @@ app.post('/append', (req, res) => {
   return res.json(result);
 });
 
-app.post('/append-entries', (req, res) => {
+app.post("/append-entries", (req, res) => {
   const result = replicationService.applyAppendFromLeader(req.body || {});
   if (result.success) {
     resetElectionTimer(node, onElectionTimeout);
@@ -146,7 +151,7 @@ app.post('/append-entries', (req, res) => {
 });
 
 // GET /sync-log?from=N — returns all committed log entries from index N onward
-app.get('/sync-log', (req, res) => {
+app.get("/sync-log", (req, res) => {
   const fromIndex = parseInt(req.query.from, 10) || 0;
   const entries = raftLog.getEntriesFrom(fromIndex);
   return res.json({
@@ -157,7 +162,7 @@ app.get('/sync-log', (req, res) => {
 });
 
 // POST /sync-log — leader pushes missing entries to a rejoining follower
-app.post('/sync-log', (req, res) => {
+app.post("/sync-log", (req, res) => {
   const { entries, commitIndex } = req.body || {};
   if (Array.isArray(entries)) {
     raftLog.replaceAll(entries);
@@ -175,11 +180,11 @@ app.post('/sync-log', (req, res) => {
 });
 
 // Manual helper: allow forcing a full-log sync from the current leader.
-app.post('/sync-followers', async (_req, res) => {
+app.post("/sync-followers", async (_req, res) => {
   if (!node.isLeader()) {
     return res.status(403).json({
       success: false,
-      error: 'NOT_LEADER',
+      error: "NOT_LEADER",
       nodeId: node.nodeId,
       state: node.state,
     });
@@ -189,7 +194,7 @@ app.post('/sync-followers', async (_req, res) => {
   return res.json(syncResult);
 });
 
-app.get('/log', (_req, res) => {
+app.get("/log", (_req, res) => {
   res.json({
     nodeId: node.nodeId,
     commitIndex: raftLog.commitIndex,
@@ -200,13 +205,13 @@ app.get('/log', (_req, res) => {
 // ── Debug / health endpoint ───────────────────────────────────────────────────
 // Useful for verifying state from the outside:
 //   curl http://localhost:5001/status
-app.get('/status', (_req, res) => {
+app.get("/status", (_req, res) => {
   res.json({
-    nodeId:      node.nodeId,
-    state:       node.state,
+    nodeId: node.nodeId,
+    state: node.state,
     currentTerm: node.currentTerm,
-    votedFor:    node.votedFor,
-    peers:       node.peerNodes,
+    votedFor: node.votedFor,
+    peers: node.peerNodes,
     commitIndex: raftLog.commitIndex,
     lastLogIndex: raftLog.getLastIndex(),
     lastLogTerm: raftLog.getLastTerm(),
@@ -217,7 +222,7 @@ app.get('/status', (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Node ${NODE_ID} listening on port ${PORT}`);
-  console.log(`  Peers: ${PEER_URLS.join(', ') || '(none)'}`);
+  console.log(`  Peers: ${PEER_URLS.join(", ") || "(none)"}`);
 
   // Kick off the RAFT protocol: every node begins as a FOLLOWER and waits
   // for a heartbeat; if none arrives within the election timeout it starts
