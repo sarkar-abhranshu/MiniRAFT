@@ -9,6 +9,7 @@ let ctx;
 let isDrawing = false;
 let lastX = 0;
 let lastY = 0;
+let currentStrokeId = null;
 
 // Current brush settings (managed by ui.js)
 let currentColor = '#000000';
@@ -44,6 +45,7 @@ function initCanvas() {
  */
 function handleMouseDown(e) {
     isDrawing = true;
+    currentStrokeId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const rect = canvas.getBoundingClientRect();
     lastX = e.clientX - rect.left;
     lastY = e.clientY - rect.top;
@@ -62,6 +64,7 @@ function handleMouseMove(e) {
     // Create stroke object
     const stroke = {
         type: 'stroke',
+        strokeId: currentStrokeId,
         x: x,
         y: y,
         prevX: lastX,
@@ -83,6 +86,7 @@ function handleMouseMove(e) {
  */
 function handleMouseUp() {
     isDrawing = false;
+    currentStrokeId = null;
 }
 
 /**
