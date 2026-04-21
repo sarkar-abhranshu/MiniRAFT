@@ -22,7 +22,7 @@ services:
 
   replica1:
     build:
-      context: ./replica
+      context: ./replica1
     environment:
       NODE_ID: replica1
       PORT: 5001
@@ -32,7 +32,7 @@ services:
     networks:
       - raft-net
     volumes:
-      - ./replica:/app
+      - ./replica1:/app
       - /app/node_modules
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5001/status"]
@@ -43,7 +43,7 @@ services:
 
   replica2:
     build:
-      context: ./replica
+      context: ./replica2
     environment:
       NODE_ID: replica2
       PORT: 5002
@@ -53,7 +53,7 @@ services:
     networks:
       - raft-net
     volumes:
-      - ./replica:/app
+      - ./replica2:/app
       - /app/node_modules
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5002/status"]
@@ -64,7 +64,7 @@ services:
 
   replica3:
     build:
-      context: ./replica
+      context: ./replica3
     environment:
       NODE_ID: replica3
       PORT: 5003
@@ -74,7 +74,7 @@ services:
     networks:
       - raft-net
     volumes:
-      - ./replica:/app
+      - ./replica3:/app
       - /app/node_modules
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5003/status"]

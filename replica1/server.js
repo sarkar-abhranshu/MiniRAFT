@@ -20,6 +20,8 @@
 
 "use strict";
 
+require("events").defaultMaxListeners = 50;
+
 const express = require("express");
 const { RaftNode } = require("./raftNode");
 const { resetElectionTimer } = require("./timers");
