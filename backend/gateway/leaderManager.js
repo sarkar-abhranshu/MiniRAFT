@@ -9,6 +9,9 @@
 const http = require('http');
 
 class LeaderManager {
+  /**
+   * Creates a leader tracker for the provided replica URLs and polling interval.
+   */
   constructor(replicaUrls, pollInterval = 1000) {
     this.replicaUrls = replicaUrls;
     this.pollInterval = pollInterval;
@@ -18,12 +21,18 @@ class LeaderManager {
     this.onLeaderChange = null;
   }
 
+  /**
+   * Starts periodic polling so leader changes are detected continuously.
+   */
   start() {
     console.log(`[LeaderManager] Starting with replicas: ${this.replicaUrls.join(', ')}`);
     this.poll();
     this.pollTimer = setInterval(() => this.poll(), this.pollInterval);
   }
 
+  /**
+   * Stops periodic leader polling and clears the active timer.
+   */
   stop() {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
@@ -32,6 +41,9 @@ class LeaderManager {
     console.log('[LeaderManager] Stopped');
   }
 
+  /**
+   * Polls all replicas, refreshes cached states, and updates the current leader pointer.
+   */
   async poll() {
     const previousLeader = this.currentLeader;
 
@@ -62,6 +74,9 @@ class LeaderManager {
     }
   }
 
+  /**
+   * Fetches and parses the /status response for one replica endpoint.
+   */
   getReplicaStatus(replicaUrl) {
     return new Promise((resolve, reject) => {
       const urlObj = new URL(`${replicaUrl}/status`);
@@ -87,14 +102,23 @@ class LeaderManager {
     });
   }
 
+  /**
+   * Returns the currently known leader URL, or null when no leader is known.
+   */
   getLeader() {
     return this.currentLeader;
   }
 
+  /**
+   * Indicates whether leader discovery currently has a valid leader endpoint.
+   */
   hasLeader() {
     return this.currentLeader !== null;
   }
 
+  /**
+   * Registers a callback invoked whenever the detected leader changes.
+   */
   onLeaderChangeCallback(callback) {
     this.onLeaderChange = callback;
   }

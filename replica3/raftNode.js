@@ -78,8 +78,11 @@ class RaftNode {
   }
 
   // --- Convenience state checkers ---
+  /** Returns true when this node currently owns leadership. */
   isLeader()    { return this.state === STATES.LEADER;    }
+  /** Returns true when this node is in an active election round. */
   isCandidate() { return this.state === STATES.CANDIDATE; }
+  /** Returns true when this node is passively following a leader. */
   isFollower()  { return this.state === STATES.FOLLOWER;  }
 }
 

@@ -49,6 +49,7 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon',
 };
 
+// Serves static frontend files and blocks path traversal attempts.
 const httpServer = http.createServer((req, res) => {
   const requestPath = req.url === '/' ? '/index.html' : (req.url || '/index.html').split('?')[0];
   const safePath = path.normalize(requestPath).replace(/^\/+/, '');
@@ -60,6 +61,7 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
+  // Reads and returns the requested asset with the correct MIME type.
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -78,6 +80,9 @@ const wss = new WebSocket.Server({ server: httpServer });
 const clientManager = new ClientManager();
 const leaderManager = new LeaderManager(REPLICA_URLS, LEADER_POLL_INTERVAL);
 
+/**
+ * Stores a committed message in memory so new clients can be synced on connect.
+ */
 function rememberCommitted(message) {
   if (!message || typeof message !== 'object') return;
 
@@ -90,10 +95,16 @@ function rememberCommitted(message) {
   if (strokeHistory.length > MAX_HISTORY) strokeHistory.shift();
 }
 
+/**
+ * Sends the in-memory stroke history to one client as a sync payload.
+ */
 function sendStrokeHistoryToClient(ws) {
   clientManager.sendToClient(ws, { type: 'sync', strokes: strokeHistory });
 }
 
+/**
+ * Performs a timeout-bounded POST request and returns normalized response data.
+ */
 async function postJson(url, body, timeoutMs = 800) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -119,6 +130,9 @@ async function postJson(url, body, timeoutMs = 800) {
   }
 }
 
+/**
+ * Forwards a client write command to the current leader with retry + re-discovery.
+ */
 async function forwardToLeader(commandMessage) {
   const MAX_ATTEMPTS = 6;
   const RETRY_DELAY_MS = 500;
@@ -171,11 +185,13 @@ async function forwardToLeader(commandMessage) {
   throw new Error('No leader available to accept writes');
 }
 
+// Registers each browser socket and routes inbound messages to RAFT leader writes.
 wss.on('connection', (ws) => {
   const clientId = `Client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   clientManager.addClient(ws, clientId);
   sendStrokeHistoryToClient(ws);
 
+  // Handles incoming client commands and forwards only write operations to the leader.
   ws.on('message', async (data) => {
     let message;
     try {
@@ -204,20 +220,25 @@ wss.on('connection', (ws) => {
     }
   });
 
+  // Removes disconnected clients from the active socket registry.
   ws.on('close', () => clientManager.removeClient(ws));
+  // Logs socket-level errors so transient client issues are visible in gateway logs.
   ws.on('error', (error) => console.error(`[Gateway] WebSocket error: ${error.message}`));
 });
 
+// Logs top-level WebSocket server errors.
 wss.on('error', (error) => {
   console.error(`[Gateway] Server error: ${error.message}`);
 });
 
+// Records leader transitions observed by periodic leader polling.
 leaderManager.onLeaderChangeCallback((newLeader, oldLeader) => {
   console.log(`[Gateway] Leader changed: ${oldLeader || 'none'} -> ${newLeader || 'none'}`);
 });
 
 leaderManager.start();
 
+// Starts the combined HTTP + WebSocket listener.
 httpServer.listen(PORT, () => {
   console.log(`[Gateway] HTTP + WebSocket listening on :${PORT}`);
 });
@@ -225,16 +246,20 @@ httpServer.listen(PORT, () => {
 console.log(`[Gateway] Frontend directory: ${FRONTEND_DIR}`);
 console.log(`[Gateway] Replicas: ${REPLICA_URLS.join(', ')}`);
 
+// Gracefully stops polling, closes sockets, and then closes the HTTP server.
 process.on('SIGINT', () => {
   console.log('\n[Gateway] Shutting down...');
   leaderManager.stop();
 
+  // Closes every active client connection before shutting down the server.
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) client.close();
   });
 
+  // Closes WebSocket and HTTP listeners in sequence.
   wss.close(() => {
     httpServer.close(() => process.exit(0));
   });
+  // Forces process exit if graceful shutdown does not finish in time.
   setTimeout(() => process.exit(1), 3000);
 });

@@ -41,6 +41,9 @@ const HEARTBEAT_FAILURE_LOG_COOLDOWN_MS = 10000;
 const lastHeartbeatLogAt = new Map();
 const lastHeartbeatFailureLogAt = new Map();
 
+/**
+ * Throttles heartbeat loop logs so leaders do not spam stdout every tick.
+ */
 function shouldLogHeartbeat(nodeId) {
   const now = Date.now();
   const last = lastHeartbeatLogAt.get(nodeId) || 0;
@@ -51,6 +54,9 @@ function shouldLogHeartbeat(nodeId) {
   return false;
 }
 
+/**
+ * Throttles heartbeat failure logs per leader->peer pair.
+ */
 function shouldLogHeartbeatFailure(nodeId, peerUrl) {
   const key = `${nodeId}->${peerUrl}`;
   const now = Date.now();
