@@ -8,9 +8,6 @@ const REPLICATION_FAILURE_LOG_COOLDOWN_MS = 5000;
 
 const lastReplicationFailureLogAt = new Map();
 
-/**
- * Rate-limits noisy replication failure logs per peer URL.
- */
 function shouldLogReplicationFailure(peerUrl) {
   const now = Date.now();
   const last = lastReplicationFailureLogAt.get(peerUrl) || 0;
@@ -21,9 +18,6 @@ function shouldLogReplicationFailure(peerUrl) {
   return false;
 }
 
-/**
- * Emits debug replication logs only when verbose mode is enabled.
- */
 function logVerbose(message) {
   if (VERBOSE_REPLICATION_LOGS) {
     console.log(message);
@@ -31,17 +25,11 @@ function logVerbose(message) {
 }
 
 class ReplicationService {
-  /**
-   * Binds replication operations to a RAFT node and its mutable log.
-   */
   constructor(node, raftLog) {
     this.node = node;
     this.raftLog = raftLog;
   }
 
-  /**
-   * Appends a client command and attempts majority replication before commit.
-   */
   async replicateCommand(command) {
     if (!this.node.isLeader()) {
       return {
@@ -108,9 +96,6 @@ class ReplicationService {
     };
   }
 
-  /**
-   * Pushes current log state to followers to help lagging nodes catch up.
-   */
   async syncFollowers() {
     if (!this.node.isLeader()) {
       return {
@@ -135,9 +120,6 @@ class ReplicationService {
     };
   }
 
-  /**
-   * Applies leader AppendEntries payload to this follower and updates commit state.
-   */
   applyAppendFromLeader(body) {
     const { term, entry, entries, leaderCommit } = body;
 
@@ -181,9 +163,6 @@ class ReplicationService {
     };
   }
 
-  /**
-   * Creates the append payload sent to followers during replication/sync.
-   */
   _buildAppendPayload(entry) {
     return {
       term: this.node.currentTerm,
@@ -195,9 +174,6 @@ class ReplicationService {
     };
   }
 
-  /**
-   * Sends one append request to a follower and normalizes success/failure shape.
-   */
   async _sendAppend(peerUrl, payload) {
     try {
       const { data } = await axios.post(`${peerUrl}/append`, payload, {

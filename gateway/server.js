@@ -209,6 +209,11 @@ wss.on('connection', (ws) => {
         return;
       }
 
+      if (message.type === 'stroke_complete') {
+        console.log(`[Gateway] Stroke added: client=${clientId} strokeId=${message.strokeId || 'unknown'} segments=${message.segments || 0}`);
+        return;
+      }
+
       if (message.type === 'sync') {
         sendStrokeHistoryToClient(ws);
         return;

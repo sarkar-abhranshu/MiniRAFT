@@ -78,6 +78,10 @@ wss.on('connection', (ws, _req) => {
           handleStroke(message);
           break;
 
+        case 'stroke_complete':
+          handleStrokeComplete(message, clientId);
+          break;
+
         case 'clear':
           handleClear();
           break;
@@ -131,8 +135,12 @@ function handleStroke(stroke) {
 
   // Broadcast to all clients
   clientManager.broadcast(stroke);
+}
 
-  console.log(`[Gateway] Stroke stored and broadcasted (history: ${strokeHistory.length})`);
+function handleStrokeComplete(message, clientId) {
+  console.log(
+    `[Gateway] Stroke added: client=${clientId} strokeId=${message.strokeId || 'unknown'} segments=${message.segments || 0}`
+  );
 }
 
 /**

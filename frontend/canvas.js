@@ -10,6 +10,7 @@ let isDrawing = false;
 let lastX = 0;
 let lastY = 0;
 let currentStrokeId = null;
+let currentStrokeSegments = 0;
 
 // Current brush settings (managed by ui.js)
 let currentColor = '#000000';
@@ -45,7 +46,8 @@ function initCanvas() {
  */
 function handleMouseDown(e) {
     isDrawing = true;
-    currentStrokeId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    currentStrokeId = `stroke-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    currentStrokeSegments = 0;
     const rect = canvas.getBoundingClientRect();
     lastX = e.clientX - rect.left;
     lastY = e.clientY - rect.top;
@@ -75,6 +77,7 @@ function handleMouseMove(e) {
     
     // Send stroke to server via WebSocket
     sendStroke(stroke);
+    currentStrokeSegments += 1;
     
     // Update last position
     lastX = x;
@@ -85,8 +88,16 @@ function handleMouseMove(e) {
  * Handle mouse up event - stop drawing
  */
 function handleMouseUp() {
+    if (isDrawing && currentStrokeId && currentStrokeSegments > 0 && typeof sendMessage === 'function') {
+        sendMessage({
+            type: 'stroke_complete',
+            strokeId: currentStrokeId,
+            segments: currentStrokeSegments
+        });
+    }
     isDrawing = false;
     currentStrokeId = null;
+    currentStrokeSegments = 0;
 }
 
 /**

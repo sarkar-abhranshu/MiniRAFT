@@ -35,7 +35,6 @@ const { ReplicationService } = require("./replication");
 const NODE_ID = process.env.NODE_ID || "replica1";
 const PORT = parseInt(process.env.PORT, 10) || 5001;
 
-// Resolves peer replica URLs from environment variables with sensible fallbacks.
 function resolvePeers() {
   if (process.env.PEERS) {
     return process.env.PEERS.split(",")
@@ -145,7 +144,6 @@ app.post("/append", (req, res) => {
   return res.json(result);
 });
 
-// Compatibility alias for AppendEntries path naming.
 app.post("/append-entries", (req, res) => {
   const result = replicationService.applyAppendFromLeader(req.body || {});
   if (result.success) {
@@ -198,7 +196,6 @@ app.post("/sync-followers", async (_req, res) => {
   return res.json(syncResult);
 });
 
-// Returns the full local log snapshot for debugging/inspection.
 app.get("/log", (_req, res) => {
   res.json({
     nodeId: node.nodeId,
