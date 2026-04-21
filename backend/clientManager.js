@@ -11,6 +11,9 @@
 const WebSocket = require('ws');
 
 class ClientManager {
+  /**
+   * Initializes the in-memory collection of active WebSocket clients.
+   */
   constructor() {
     this.clients = new Set();
   }
