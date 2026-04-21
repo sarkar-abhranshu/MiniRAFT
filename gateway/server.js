@@ -25,7 +25,11 @@ const DEFAULT_REPLICAS = [
 ];
 
 const REPLICA_URLS = process.env.REPLICAS
-  ? process.env.REPLICAS.split(',').map((url) => url.trim()).filter(Boolean)
+  ? process.env.REPLICAS
+    .split(',')
+    // Trims each configured replica URL before gateway leader polling starts.
+    .map((url) => url.trim())
+    .filter(Boolean)
   : DEFAULT_REPLICAS;
 
 const LEADER_POLL_INTERVAL = parseInt(process.env.LEADER_POLL, 10) || 1000;
@@ -107,6 +111,7 @@ function sendStrokeHistoryToClient(ws) {
  */
 async function postJson(url, body, timeoutMs = 800) {
   const controller = new AbortController();
+  // Aborts slow leader requests so write forwarding can retry quickly.
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
@@ -146,6 +151,7 @@ async function forwardToLeader(commandMessage) {
 
     if (!leader) {
       if (attempt < MAX_ATTEMPTS - 1) {
+        // Pauses briefly before retrying leader discovery.
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
         continue;
       }
@@ -158,6 +164,7 @@ async function forwardToLeader(commandMessage) {
     } catch {
       await leaderManager.poll();
       if (attempt < MAX_ATTEMPTS - 1) {
+        // Adds a short backoff when the leader endpoint is unreachable.
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
         continue;
       }
@@ -174,6 +181,7 @@ async function forwardToLeader(commandMessage) {
     if (resp.status === 409 || resp.status === 503 || resp.status === 403) {
       await leaderManager.poll();
       if (attempt < MAX_ATTEMPTS - 1) {
+        // Waits before retrying after explicit leader-side rejection/redirection.
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
         continue;
       }
@@ -263,6 +271,7 @@ process.on('SIGINT', () => {
 
   // Closes WebSocket and HTTP listeners in sequence.
   wss.close(() => {
+    // Exits only after the HTTP listener has released the port.
     httpServer.close(() => process.exit(0));
   });
   // Forces process exit if graceful shutdown does not finish in time.
